@@ -98,6 +98,17 @@ that class of bug entirely — it launches a real `python.exe`/`py.exe` with a r
 no `.cmd` shim involved. If you hit a launch problem anyway, the fix is the same one that works for
 every MCP client on Windows: point `command` at the absolute interpreter and keep the script path.
 
+The MCP pipes always use UTF-8, including on Windows systems whose default code page is CP936.
+The server also repairs malformed UTF-16 surrogate escapes before sending JSON to DeepSeek.
+Normal Chinese text and emoji are preserved.
+
+Search and fetch calls run independently, with at most four active network workers. Each call has
+a total deadline of 60 seconds by default (`DEEPSEEK_TIMEOUT`, capped at 240 seconds), so a slow
+response cannot keep the client waiting for its full 300-second timeout. Calls made while all
+workers are occupied receive a retryable busy error immediately. A timed-out network worker
+retains its slot until it exits; if the provider stays unresponsive, restart the MCP server
+before retrying.
+
 ## Install
 
 **Linux / macOS**
@@ -206,6 +217,10 @@ codex --profile deepseek mcp list --json
 | `No marketplace plugins found` | The `[marketplaces.personal]` table got wiped from `config.toml`. Re-run the installer. |
 | Plugin tools never appear, MCP fails to handshake | Wrong interpreter name for the host (`python3` on Windows). Re-run the installer, which pins a working one. |
 | `402` from DeepSeek | Account balance empty for the Search/Fetch endpoints. Top up. |
+| HTTP `400` mentioning a lone surrogate, or garbled Chinese queries on Windows | Upgrade/reinstall the plugin and restart Codex. Versions before 1.1.2 could decode MCP's UTF-8 input using the Windows code page. |
+| `request exceeded its ... total time limit` | The provider did not complete within the server deadline. Retry later or adjust `DEEPSEEK_TIMEOUT` in the MCP environment (maximum 240 seconds). |
+| `server is busy with other requests` | All four network workers are occupied. Retry after a call finishes; restart the MCP server if the provider remains stuck. |
+| `timed out awaiting tools/call after 300s` | Upgrade/reinstall and restart Codex. Version 1.1.2 adds per-call total deadlines and prevents slow calls from blocking the stdio request loop. |
 
 ## Uninstall
 
@@ -249,6 +264,17 @@ install.sh / install.ps1    Installers (POSIX / Windows)
   loading, and plugin-bundled hooks load with it.
 - A `matcher` that names a whole server (`mcp__ds_web`) matches nothing — hook tool names are
   `mcp__<server>__<tool>`, so use a regex like `mcp__ds_web.*`.
+
+### Regression tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests use only the Python standard library and local HTTP servers. They do not require a
+DeepSeek API key or make paid API calls. Coverage includes legacy Windows pipe encodings,
+Chinese/emoji input, malformed surrogate escapes, concurrent calls, slow HTTP responses,
+deadline handling, and bounded worker capacity.
 
 ## License
 

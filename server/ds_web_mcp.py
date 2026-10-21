@@ -12,16 +12,22 @@ Stdlib only, newline-delimited JSON-RPC 2.0 over stdio (MCP stdio transport).
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
+import threading
 import urllib.error
 import urllib.request
 
 API_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
-TIMEOUT = float(os.environ.get("DEEPSEEK_TIMEOUT", "60"))
+_configured_timeout = float(os.environ.get("DEEPSEEK_TIMEOUT", "60"))
+# 总时限留出客户端 300 秒截止时间的余量，避免无限值绕过保护。
+TIMEOUT = min(240.0, max(0.1, _configured_timeout)) if math.isfinite(_configured_timeout) else 60.0
+MAX_CONCURRENT_CALLS = 4
+_OUTPUT_LOCK = threading.Lock()
 MAX_FETCH_CHARS = int(os.environ.get("DSWEB_MAX_FETCH_CHARS", "60000"))
 SERVER_NAME = "ds-web"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.2"
 DEFAULT_PROTOCOL = "2025-06-18"
 
 TOOLS = [
@@ -107,6 +113,25 @@ class ToolError(Exception):
     pass
 
 
+def configure_stdio() -> None:
+    # MCP 固定使用 UTF-8；Windows 本地代码页会把中文解成乱码和孤立代理。
+    for stream in (sys.stdin, sys.stdout):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+
+
+def normalize_json(value):
+    """Keep JSON text valid Unicode, including input with UTF-16 surrogates."""
+    if isinstance(value, str):
+        # 合并合法代理对；孤立代理改为替代字符，避免上游拒绝请求。
+        return value.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+    if isinstance(value, dict):
+        return {normalize_json(key): normalize_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [normalize_json(item) for item in value]
+    return value
+
+
 def api_key() -> str:
     key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
@@ -120,7 +145,7 @@ def api_key() -> str:
 def post(path: str, payload: dict) -> dict:
     req = urllib.request.Request(
         f"{API_BASE}{path}",
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(normalize_json(payload), ensure_ascii=False).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key()}",
             "Content-Type": "application/json",
@@ -163,7 +188,7 @@ def do_search(args: dict) -> str:
         count = 8
     payload = {"query": query, "count": count, "need_content": bool(args.get("need_content"))}
     if args.get("ori_question"):
-        payload["ori_question"] = str(args["ori_question"])[:128]
+        payload["ori_question"] = normalize_json(str(args["ori_question"]))[:128]
     if args.get("localization"):
         payload["localization"] = str(args["localization"])
 
@@ -222,8 +247,10 @@ HANDLERS = {"web_search": do_search, "web_fetch": do_fetch}
 
 
 def send(msg: dict) -> None:
-    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    # ASCII 转义兼容 Windows 管道编码；客户端解析后仍保留中文和 emoji。
+    with _OUTPUT_LOCK:
+        sys.stdout.write(json.dumps(normalize_json(msg), ensure_ascii=True) + "\n")
+        sys.stdout.flush()
 
 
 def ok(msg_id, result):
@@ -234,7 +261,87 @@ def err(msg_id, code, message):
     send({"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": message}})
 
 
-def handle(msg: dict) -> None:
+def tool_result(handler, arguments: dict) -> dict:
+    try:
+        text = handler(arguments)
+        return {"content": [{"type": "text", "text": text}], "isError": False}
+    except ToolError as exc:
+        text = str(exc)
+    except Exception as exc:  # noqa: BLE001 - surface anything else to the model
+        text = f"{type(exc).__name__}: {exc}"
+    return {"content": [{"type": "text", "text": text}], "isError": True}
+
+
+class ToolCalls:
+    """有界后台调用：慢请求不堵塞协议，超时后只发送一次结果。"""
+
+    def __init__(self, timeout: float = TIMEOUT, limit: int = MAX_CONCURRENT_CALLS):
+        self.timeout = timeout
+        self._slots = threading.BoundedSemaphore(limit)
+        self._pending = set()
+        self._condition = threading.Condition()
+
+    def submit(self, msg_id, handler, arguments: dict) -> None:
+        if not self._slots.acquire(blocking=False):
+            ok(msg_id, {
+                "content": [{"type": "text", "text": (
+                    "DeepSeek web server is busy with other requests. Retry after a moment."
+                )}],
+                "isError": True,
+            })
+            return
+        done = threading.Event()
+        response_lock = threading.Lock()
+        with self._condition:
+            self._pending.add(done)
+
+        def finish(result):
+            with response_lock:
+                if done.is_set():
+                    return
+                try:
+                    ok(msg_id, result)
+                finally:
+                    done.set()
+                    with self._condition:
+                        self._pending.discard(done)
+                        self._condition.notify_all()
+
+        timer = threading.Timer(self.timeout, lambda: finish({
+            "content": [{"type": "text", "text": (
+                f"DeepSeek API request exceeded its {self.timeout:g}s total time limit. "
+                "Retry after a moment."
+            )}],
+            "isError": True,
+        }))
+        timer.daemon = True
+
+        def run():
+            try:
+                finish(tool_result(handler, arguments))
+            finally:
+                timer.cancel()
+                # 超时本身不释放槽位；仍在退出的网络线程也计入上限。
+                self._slots.release()
+
+        try:
+            timer.start()
+            threading.Thread(target=run, daemon=True).start()
+        except RuntimeError:
+            timer.cancel()
+            self._slots.release()
+            finish({
+                "content": [{"type": "text", "text": "Could not start a DeepSeek request worker."}],
+                "isError": True,
+            })
+
+    def wait(self) -> None:
+        with self._condition:
+            while self._pending:
+                self._condition.wait()
+
+
+def handle(msg: dict, calls: ToolCalls | None = None) -> None:
     method = msg.get("method")
     msg_id = msg.get("id")
     params = msg.get("params") or {}
@@ -270,13 +377,10 @@ def handle(msg: dict) -> None:
         if not handler:
             err(msg_id, -32602, f"Unknown tool: {name}")
             return
-        try:
-            text = handler(arguments)
-            ok(msg_id, {"content": [{"type": "text", "text": text}], "isError": False})
-        except ToolError as exc:
-            ok(msg_id, {"content": [{"type": "text", "text": str(exc)}], "isError": True})
-        except Exception as exc:  # noqa: BLE001 - surface anything else to the model
-            ok(msg_id, {"content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}], "isError": True})
+        if calls is None:
+            ok(msg_id, tool_result(handler, arguments))
+        else:
+            calls.submit(msg_id, handler, arguments)
         return
     if method in ("resources/list", "prompts/list"):
         ok(msg_id, {("resources" if method.startswith("resources") else "prompts"): []})
@@ -286,6 +390,7 @@ def handle(msg: dict) -> None:
 
 
 def main() -> None:
+    configure_stdio()
     debug_log = os.environ.get("DSWEB_DEBUG_LOG", "").strip()
     if debug_log:
         try:
@@ -293,6 +398,7 @@ def main() -> None:
                 fh.write(f"started pid={os.getpid()} argv={sys.argv} cwd={os.getcwd()}\n")
         except Exception:
             pass
+    calls = ToolCalls()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -305,9 +411,11 @@ def main() -> None:
         if isinstance(msg, list):
             for item in msg:
                 if isinstance(item, dict):
-                    handle(item)
+                    handle(item, calls)
         elif isinstance(msg, dict):
-            handle(msg)
+            handle(msg, calls)
+    # EOF 只等调用响应；超时后不再等待底层网络线程关闭。
+    calls.wait()
 
 
 if __name__ == "__main__":
