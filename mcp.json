@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ds_web": {
+      "command": "python3",
+      "args": ["server/ds_web_mcp.py"],
+      "cwd": "./",
+      "env_vars": ["DEEPSEEK_API_KEY"],
+      "env": {
+        "DEEPSEEK_BASE_URL": "https://api.deepseek.com"
+      }
+    }
+  }
+}

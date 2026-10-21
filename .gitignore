@@ -1,0 +1,40 @@
+# Local secrets — never commit
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+
+# Codex / plugin runtime state
+config.toml
+*.config.toml
+auth.json
+sessions/
+logs/
+*.sqlite
+*.sqlite-*
+*.jsonl
+plugins/cache/
+
+# Local test scratch (hook payload dumps, MCP start logs)
+*.log
+probe*.jsonl
+mcp_start.log
+dsweb_probe.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

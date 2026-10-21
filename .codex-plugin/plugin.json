@@ -1,0 +1,26 @@
+{
+  "name": "ds-web",
+  "version": "1.0.0",
+  "description": "Live web search and page fetch for DeepSeek models on Codex, backed by DeepSeek's own Search/Fetch API.",
+  "author": {
+    "name": "chaojisizhu",
+    "url": "https://github.com/chaojisizhu"
+  },
+  "license": "MIT",
+  "keywords": ["deepseek", "web-search", "web-fetch", "mcp"],
+  "mcpServers": "./mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "DeepSeek Web",
+    "shortDescription": "Give DeepSeek models real web search and page fetching",
+    "longDescription": "Bundles two MCP tools (web_search, web_fetch) that call DeepSeek's official Search and Fetch APIs. A PreToolUse hook denies these tools to non-DeepSeek models, and a profile-scoped switch keeps the server unloaded in GPT sessions.",
+    "developerName": "chaojisizhu",
+    "category": "Research",
+    "capabilities": ["Read"],
+    "brandColor": "#4D6BFE",
+    "defaultPrompt": [
+      "Search the web for the latest DeepSeek V4 release notes",
+      "Fetch this URL and summarize it"
+    ]
+  }
+}
