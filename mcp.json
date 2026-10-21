@@ -6,7 +6,9 @@
       "cwd": "./",
       "env_vars": ["DEEPSEEK_API_KEY"],
       "env": {
-        "DEEPSEEK_BASE_URL": "https://api.deepseek.com"
+        "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1"
       }
     }
   }
