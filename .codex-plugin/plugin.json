@@ -1,6 +1,6 @@
 {
   "name": "ds-web",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Live web search and page fetch for DeepSeek models on Codex, backed by DeepSeek's own Search/Fetch API. Kept invisible to GPT models, with Windows support.",
   "author": {
     "name": "chaojisizhu",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "DeepSeek Web",
     "shortDescription": "Give DeepSeek models real web search and page fetching",
-    "longDescription": "Bundles two MCP tools (web_search, web_fetch) that call DeepSeek's official Search and Fetch APIs. Three layers keep them DeepSeek-only: a profile-scoped enable switch, a SessionStart notice telling non-DeepSeek models not to call them, and a PreToolUse hook that denies any call that tries anyway. Ships POSIX and Windows installers.",
+    "longDescription": "Bundles two MCP tools (web_search, web_fetch) that call DeepSeek's official Search and Fetch APIs. Three layers keep them away from GPT-series (OpenAI) models only: a profile-scoped enable switch, a SessionStart notice telling GPT models not to call them, and a PreToolUse hook that denies any call anyway. DeepSeek, Claude, GLM, Kimi and other families keep full access. Ships POSIX and Windows installers.",
     "developerName": "chaojisizhu",
     "category": "Research",
     "capabilities": [

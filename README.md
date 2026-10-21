@@ -27,18 +27,29 @@ successful request (¥5 / 1,000 requests each at the time of writing).
 
 ## How model isolation works
 
+The rule is narrow on purpose: **GPT-series (OpenAI) models are blocked; every other model family
+is left alone.** DeepSeek, Claude, GLM, Kimi and unrecognised slugs all keep full access.
+
 Three layers, cheapest first. Any one of them alone is enough; together they are belt-and-braces.
 
 1. **Profile-scoped on/off switch.** Codex profiles (`~/.codex/<name>.config.toml`) can override
    `[plugins."ds-web@personal".mcp_servers.ds_web] enabled`. Default and GPT profiles keep it
    `false`, so the MCP server is never started and the tools are absent from the tool list.
-2. **Session-start instruction.** If a GPT model starts a session while the plugin is on anyway,
-   a `SessionStart` hook injects one developer-context paragraph naming the two tools and telling
-   the model not to call them. The model reads this before it plans, so it never picks the tool
+2. **Session-start instruction.** If a GPT-series model starts a session while the plugin is on
+   anyway, a `SessionStart` hook injects one developer-context paragraph naming the two tools and
+   telling it not to call them. The model reads this before it plans, so it never picks the tool
    and never burns a turn on a denial.
 3. **`PreToolUse` model gate.** Codex passes the active model slug on every hook event. If a
-   non-DeepSeek model calls `mcp__ds_web__*` regardless, the hook denies the call with a reason
-   the model can read.
+   GPT-series model calls `mcp__ds_web__*` regardless, the hook denies the call with a reason the
+   model can read.
+
+What counts as GPT-series (`hooks/model_policy.py`):
+
+```text
+gpt*  o1*  o3*  o4*  codex-mini*
+```
+
+Override with `DSWEB_BLOCK_MODELS` (comma-separated globs) if you use different slugs.
 
 Verified in real sessions (`codex-cli 0.163.0`):
 
@@ -46,16 +57,23 @@ Verified in real sessions (`codex-cli 0.163.0`):
 # gpt-6-luna, plugin disabled → model sees no MCP tools
 NONE
 
-# gpt-6-luna, plugin force-enabled → told up front, and denied if it tries anyway
+# gpt-6-luna, plugin force-enabled → told up front, refuses on its own
 hook: SessionStart Completed
-NO. "The ds_web MCP server … is for DeepSeek models only. This session runs 'gpt-6-luna',
-so do not call those tools …"
-Tool call blocked by PreToolUse hook: The mcp__ds_web__web_search tool is DeepSeek-only … (if forced)
+I can't call mcp__ds_web__web_search in this GPT session, so I don't have a result to quote.
 
-# deepseek-v4-flash → notice stays silent, real search works
+# deny path when a GPT model is made to call anyway
+Tool call blocked by PreToolUse hook: `mcp__ds_web__web_search` belongs to the DeepSeek Web
+plugin and is DeepSeek-only. GPT-series (OpenAI) models must not call it, …
+
+# deepseek-v4-flash → notice silent, real search works
 mcp: ds_web/web_search started
 mcp: ds_web/web_search (completed)
 10
+
+# claude-haiku-5.5 → notice silent, allowed and working
+hook: SessionStart Completed
+mcp: ds_web/web_search (completed)
+8
 ```
 
 ## Requirements
@@ -207,8 +225,9 @@ Then delete the `[plugins."ds-web@personal"]` and `[marketplaces.personal]` tabl
 .codex-plugin/plugin.json   Codex manifest (declares mcpServers + hooks)
 mcp.json                    MCP server definition (interpreter pinned at install time)
 server/ds_web_mcp.py        stdio MCP server → DeepSeek Search/Fetch (stdlib only)
-hooks/model_gate.py         PreToolUse gate: deny the tools to non-DeepSeek models
-hooks/session_notice.py     SessionStart notice: tell non-DeepSeek models up front
+hooks/model_gate.py         PreToolUse gate: deny the tools to GPT-series models
+hooks/session_notice.py     SessionStart notice: tell GPT-series models up front
+hooks/model_policy.py       Shared rule: which models are blocked (gpt*/o1*/o3*/o4*/codex-mini*)
 hooks/hooks.json            Hook registration (both hooks, with Windows commands)
 scripts/select_python_command.py   Picks python3 / python / py for this host
 install.sh / install.ps1    Installers (POSIX / Windows)

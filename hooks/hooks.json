@@ -1,5 +1,5 @@
 {
-  "description": "DeepSeek-only web tools: tell non-DeepSeek models at session start not to use them, and deny any call that still reaches for them.",
+  "description": "DeepSeek web tools for DeepSeek models. GPT-series (OpenAI) models are told at session start not to use them and are denied if they call anyway; other model families pass through.",
   "hooks": {
     "SessionStart": [
       {
@@ -10,7 +10,7 @@
             "command": "python3 \"${PLUGIN_ROOT}/hooks/session_notice.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}/hooks/session_notice.py\"",
             "timeout": 10,
-            "statusMessage": "Noting DeepSeek-only tools for this model"
+            "statusMessage": "Noting DeepSeek-only tools for GPT-series models"
           }
         ]
       }
@@ -24,7 +24,7 @@
             "command": "python3 \"${PLUGIN_ROOT}/hooks/model_gate.py\"",
             "commandWindows": "python \"${PLUGIN_ROOT}/hooks/model_gate.py\"",
             "timeout": 10,
-            "statusMessage": "Checking model access to DeepSeek web tools"
+            "statusMessage": "Checking GPT-series gate for DeepSeek web tools"
           }
         ]
       }
