@@ -1,22 +1,29 @@
 {
   "name": "ds-web",
-  "version": "1.0.0",
-  "description": "Live web search and page fetch for DeepSeek models on Codex, backed by DeepSeek's own Search/Fetch API.",
+  "version": "1.1.0",
+  "description": "Live web search and page fetch for DeepSeek models on Codex, backed by DeepSeek's own Search/Fetch API. Kept invisible to GPT models, with Windows support.",
   "author": {
     "name": "chaojisizhu",
     "url": "https://github.com/chaojisizhu"
   },
   "license": "MIT",
-  "keywords": ["deepseek", "web-search", "web-fetch", "mcp"],
+  "keywords": [
+    "deepseek",
+    "web-search",
+    "web-fetch",
+    "mcp"
+  ],
   "mcpServers": "./mcp.json",
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "DeepSeek Web",
     "shortDescription": "Give DeepSeek models real web search and page fetching",
-    "longDescription": "Bundles two MCP tools (web_search, web_fetch) that call DeepSeek's official Search and Fetch APIs. A PreToolUse hook denies these tools to non-DeepSeek models, and a profile-scoped switch keeps the server unloaded in GPT sessions.",
+    "longDescription": "Bundles two MCP tools (web_search, web_fetch) that call DeepSeek's official Search and Fetch APIs. Three layers keep them DeepSeek-only: a profile-scoped enable switch, a SessionStart notice telling non-DeepSeek models not to call them, and a PreToolUse hook that denies any call that tries anyway. Ships POSIX and Windows installers.",
     "developerName": "chaojisizhu",
     "category": "Research",
-    "capabilities": ["Read"],
+    "capabilities": [
+      "Read"
+    ],
     "brandColor": "#4D6BFE",
     "defaultPrompt": [
       "Search the web for the latest DeepSeek V4 release notes",

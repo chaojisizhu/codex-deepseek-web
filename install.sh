@@ -24,6 +24,16 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 1
 fi
 
+# One interpreter for every embedded Python snippet below.
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  echo "error: python3 (or python) not found on PATH; install Python 3.9+" >&2
+  exit 1
+fi
+
 if [[ "${1:-}" == "--uninstall" ]]; then
   CODEX_HOME="$CODEX_HOME" codex plugin remove "$PLUGIN_ID" 2>/dev/null || true
   rm -rf "${PLUGIN_DEST:?}"
@@ -33,7 +43,7 @@ fi
 
 # 1. Copy the plugin payload into ~/plugins/<name> (rsync-free for portability).
 mkdir -p "$PLUGIN_DEST" "$(dirname "$MARKETPLACE_FILE")"
-python3 - "$SRC_DIR" "$PLUGIN_DEST" <<'PY'
+"$PY" - "$SRC_DIR" "$PLUGIN_DEST" <<'PY'
 import pathlib, shutil, sys
 
 src, dest = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -56,7 +66,7 @@ print(f"plugin payload copied to {dest}")
 PY
 
 # 2. Register / refresh the marketplace entry idempotently.
-python3 - "$MARKETPLACE_FILE" "$PLUGIN_NAME" "$MARKETPLACE_NAME" <<'PY'
+"$PY" - "$MARKETPLACE_FILE" "$PLUGIN_NAME" "$MARKETPLACE_NAME" <<'PY'
 import json, pathlib, sys
 
 path, name, marketplace = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -80,7 +90,12 @@ path.write_text(json.dumps(payload, indent=2) + "\n")
 print(f"marketplace entry written: {path}")
 PY
 
-# 3. Register the marketplace and install the plugin.
+# 3. Pick a Python interpreter that actually exists on this host and write it
+#    into the plugin's mcp.json (Codex has no per-platform MCP command override).
+INTERPRETER="$("$PY" "$PLUGIN_DEST/scripts/select_python_command.py" "$PLUGIN_DEST")"
+echo "MCP server will launch with: $INTERPRETER"
+
+# 4. Register the marketplace and install the plugin.
 CODEX_HOME="$CODEX_HOME" codex plugin marketplace add "$HOME" >/dev/null
 CODEX_HOME="$CODEX_HOME" codex plugin remove "$PLUGIN_ID" >/dev/null 2>&1 || true
 CODEX_HOME="$CODEX_HOME" codex plugin add "$PLUGIN_ID"

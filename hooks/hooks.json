@@ -1,6 +1,20 @@
 {
-  "description": "DeepSeek-only web tools: deny mcp__ds_web__* calls when the active model is not a DeepSeek model.",
+  "description": "DeepSeek-only web tools: tell non-DeepSeek models at session start not to use them, and deny any call that still reaches for them.",
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/session_notice.py\"",
+            "commandWindows": "python \"${PLUGIN_ROOT}/hooks/session_notice.py\"",
+            "timeout": 10,
+            "statusMessage": "Noting DeepSeek-only tools for this model"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "mcp__ds_web.*",
@@ -8,8 +22,9 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/model_gate.py\"",
-            "statusMessage": "Checking model access to DeepSeek web tools",
-            "timeout": 10
+            "commandWindows": "python \"${PLUGIN_ROOT}/hooks/model_gate.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking model access to DeepSeek web tools"
           }
         ]
       }
